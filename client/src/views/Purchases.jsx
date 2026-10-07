@@ -279,7 +279,11 @@ export default function Purchases({ cfg, globalSearch = '' }) {
                     required
                   >
                     <option value="">Select supplier...</option>
-                    {suppliers.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
+                    {suppliers.map(s => {
+                      const label = s.company ? `${s.company}${s.contactPerson || (s.name && s.name !== s.company) ? ` (${s.contactPerson || s.name})` : ''}` : s.name;
+                      const itemsText = s.itemsProvided ? ` — Supplies: ${s.itemsProvided}` : '';
+                      return <option key={s._id} value={s._id}>{label}{itemsText}</option>;
+                    })}
                   </select>
                 </div>
 

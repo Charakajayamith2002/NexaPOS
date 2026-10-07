@@ -189,8 +189,19 @@ const Refund = mongoose.model('Refund', new mongoose.Schema({
   payment: { type: mongoose.Schema.Types.ObjectId, ref: 'Payment' },
   items: [{ product: mongoose.Schema.Types.ObjectId, name: String, qty: Number, price: Number }],
 }, { timestamps: true }));
-const logMove = (p, change, reason, ref, user) => StockMovement.create({ product: p._id, name: p.name, change, balance: p.stock, reason, ref, user });
-const Supplier = mongoose.model('Supplier', new mongoose.Schema({ name: { type: String, required: true }, phone: String, email: String, address: String }, { timestamps: true }));
+const Supplier = mongoose.model('Supplier', new mongoose.Schema({
+  name: { type: String, required: true },
+  company: { type: String, default: '' },
+  contactPerson: { type: String, default: '' },
+  itemsProvided: { type: String, default: '' },
+  phone: { type: String, default: '' },
+  email: { type: String, default: '' },
+  address: { type: String, default: '' },
+  paymentTerms: { type: String, default: '' },
+  taxId: { type: String, default: '' },
+  notes: { type: String, default: '' },
+  active: { type: Boolean, default: true },
+}, { timestamps: true }));
 const PurchaseOrder = mongoose.model('PurchaseOrder', new mongoose.Schema({
   poNo: { type: String, unique: true }, supplier: mongoose.Schema.Types.ObjectId, supplierName: String,
   items: [{ product: mongoose.Schema.Types.ObjectId, name: String, qty: Number, cost: Number, receivedQty: { type: Number, default: 0 } }],
@@ -617,18 +628,42 @@ app.post('/api/sales/:id/return', auth(['canRefund', 'admin']), wrap(async (req,
 app.get('/api/returns', auth(['admin']), wrap(async (_, res) => res.json(await Refund.find().sort('-createdAt').limit(100))));
 
 // ---- Suppliers ----
-app.get('/api/suppliers', auth(['admin']), wrap(async (_, res) => res.json(await Supplier.find().sort('name'))));
-app.post('/api/suppliers', auth(['admin']), wrap(async (req, res) => {
-  const { name, phone, email, address } = req.body;
-  if (!name?.trim()) throw fail(400, 'Supplier name is required');
-  res.json(await Supplier.create({ name: name.trim(), phone, email, address }));
+app.get('/api/suppliers', auth(['admin', 'canManagePurchases']), wrap(async (_, res) => res.json(await Supplier.find().sort({ company: 1, name: 1 }))));
+app.post('/api/suppliers', auth(['admin', 'canManagePurchases']), wrap(async (req, res) => {
+  const { name, company, contactPerson, itemsProvided, phone, email, address, paymentTerms, taxId, notes } = req.body;
+  const primaryName = (company?.trim() || name?.trim());
+  if (!primaryName) throw fail(400, 'Supplier name or Company name is required');
+  res.json(await Supplier.create({
+    name: name?.trim() || company?.trim(),
+    company: company?.trim() || '',
+    contactPerson: contactPerson?.trim() || '',
+    itemsProvided: itemsProvided?.trim() || '',
+    phone: phone?.trim() || '',
+    email: email?.trim() || '',
+    address: address?.trim() || '',
+    paymentTerms: paymentTerms?.trim() || '',
+    taxId: taxId?.trim() || '',
+    notes: notes?.trim() || ''
+  }));
 }));
 app.put('/api/suppliers/:id', auth(['canManagePurchases', 'admin']), wrap(async (req, res) => {
-  const { name, phone, email, address } = req.body;
-  if (!name?.trim()) throw fail(400, 'Supplier name is required');
-  res.json(await Supplier.findByIdAndUpdate(req.params.id, { name: name.trim(), phone, email, address }, { new: true }));
+  const { name, company, contactPerson, itemsProvided, phone, email, address, paymentTerms, taxId, notes } = req.body;
+  const primaryName = (company?.trim() || name?.trim());
+  if (!primaryName) throw fail(400, 'Supplier name or Company name is required');
+  res.json(await Supplier.findByIdAndUpdate(req.params.id, {
+    name: name?.trim() || company?.trim(),
+    company: company?.trim() || '',
+    contactPerson: contactPerson?.trim() || '',
+    itemsProvided: itemsProvided?.trim() || '',
+    phone: phone?.trim() || '',
+    email: email?.trim() || '',
+    address: address?.trim() || '',
+    paymentTerms: paymentTerms?.trim() || '',
+    taxId: taxId?.trim() || '',
+    notes: notes?.trim() || ''
+  }, { new: true }));
 }));
-app.delete('/api/suppliers/:id', auth(['admin']), wrap(async (req, res) => {
+app.delete('/api/suppliers/:id', auth(['admin', 'canManagePurchases']), wrap(async (req, res) => {
   if (await PurchaseOrder.exists({ supplier: req.params.id })) throw fail(400, 'This supplier has purchase orders, so it cannot be deleted');
   await Supplier.findByIdAndDelete(req.params.id);
   res.json({ ok: true });
@@ -647,8 +682,8 @@ app.post('/api/purchases', auth(['canManagePurchases', 'admin']), wrap(async (re
     if (!p || !(qty > 0) || !(cost >= 0)) throw fail(400, 'Check the item quantities and costs');
     lines.push({ product: p._id, name: p.name, qty, cost });
   }
-  const total = +lines.reduce((s, l) => s + l.qty * l.cost, 0).toFixed(2);
-  res.json(await PurchaseOrder.create({ poNo: await nextPo(), supplier: sup._id, supplierName: sup.name, items: lines, total, notes, createdBy: req.user.name }));
+  const supplierLabel = sup.company ? (sup.contactPerson || (sup.name && sup.name !== sup.company) ? `${sup.company} (${sup.contactPerson || sup.name})` : sup.company) : sup.name;
+  res.json(await PurchaseOrder.create({ poNo: await nextPo(), supplier: sup._id, supplierName: supplierLabel, items: lines, total, notes, createdBy: req.user.name }));
 }));
 app.post('/api/purchases/:id/receive', auth(['canManagePurchases', 'admin']), wrap(async (req, res) => {
   const po = await PurchaseOrder.findById(req.params.id);
